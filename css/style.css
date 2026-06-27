@@ -1096,18 +1096,19 @@ body {
 }
 
 /* Board flip animation */
-@keyframes board-flip {
-  from {
-    transform: rotateY(0deg) rotateZ(0deg);
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.85;
-  }
-  to {
-    transform: rotateY(180deg) rotateZ(0deg);
-    opacity: 1;
-  }
+@keyframes board-spin {
+  0% { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes piece-counter-spin {
+  0% { transform: rotate(-180deg); }
+  100% { transform: rotate(-360deg); }
+}
+.board-spinning {
+  animation: board-spin 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.board-spinning .piece {
+  animation: piece-counter-spin 0.65s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* Enable animations when setting allows */
