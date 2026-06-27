@@ -132,8 +132,6 @@ const ChessApp = (() => {
 
     if (!loadSession()) startNewGame();
     else fullRender();
-
-    gameStartTime = Date.now();
   }
 
   // ─── New Game / Reset ─────────────────────────────────────────────────────
@@ -579,6 +577,7 @@ const ChessApp = (() => {
           history,
           flipped,
           lastMove,
+          gameStartTime,
         }),
       );
     } catch (_) {
@@ -597,6 +596,7 @@ const ChessApp = (() => {
       history = saved.history || [];
       flipped = saved.flipped || false;
       lastMove = saved.lastMove || null;
+      gameStartTime = saved.gameStartTime || Date.now();
       selected = null;
       legalSqs = [];
       gameResult = ChessEngine.getGameResult(gameState);
