@@ -49,7 +49,7 @@
   --piece-black: #312e2b;
 
   /* Sizing — board square size drives layout */
-  --sq: min(10.8vw, 78px);
+  --sq: min(10.8vw, calc(12.5vh - 30px), 78px);
   --board-size: calc(var(--sq) * 8);
   --coord-gutter: 20px;
 

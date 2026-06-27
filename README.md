@@ -32,6 +32,7 @@ Because this is a pure static application, it can be hosted anywhere for free. W
 ### 🎨 Authentic Styling & Customization
 - **Chess.com Inspired Default Theme:** Beautiful default Dark Mode UI with the iconic Green/White board.
 - **Multiple Board Themes:** Switch between Classic, Green, Blue, and Purple themes.
+- **Pure Unicode Pieces:** Relies on standard Unicode chess characters styled with CSS for lightweight, zero-dependency piece rendering.
 - **Dark/Light Mode UI:** The entire interface adapts seamlessly to light or dark preferences.
 - **Smooth Animations:** Buttery smooth DOM reconciliation ensures pieces glide naturally during drag-and-drop operations, and board flips are animated.
 - **Settings Persistence:** Your audio, visual, and theme preferences are saved locally.
@@ -62,6 +63,7 @@ The app is meticulously styled to look great on any device:
 - **Desktop (>740px):** Full layout with side-by-side board and sidebar panels.
 - **Tablet (480–740px):** Grid layout stacking the sidebar below the board.
 - **Mobile (<480px):** Optimized for touch with compact controls and highly readable UI.
+- **Dynamic Board Scaling:** The chess board automatically calculates viewport height and width to guarantee it fits entirely on a single screen without vertical scrolling.
 - **Small phones (<375px):** Minimal header and edge-to-edge board utilization.
 
 ---

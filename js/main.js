@@ -40,7 +40,6 @@ const ChessApp = (() => {
     animations: true,
     autoFlip: false,
     boardTheme: "green",
-    pieceTheme: "unicode",
   };
 
   // TODO: Clock state will live here
@@ -112,13 +111,6 @@ const ChessApp = (() => {
       .getElementById("toggle-auto-flip")
       .addEventListener("change", (e) => {
         settings.autoFlip = e.target.checked;
-        saveSettings();
-      });
-
-    document
-      .getElementById("piece-theme-select")
-      .addEventListener("change", (e) => {
-        settings.pieceTheme = e.target.value;
         saveSettings();
       });
 
@@ -299,7 +291,6 @@ const ChessApp = (() => {
     document.getElementById("toggle-sounds").checked = settings.soundEnabled;
     document.getElementById("toggle-animations").checked = settings.animations;
     document.getElementById("toggle-auto-flip").checked = settings.autoFlip;
-    document.getElementById("piece-theme-select").value = settings.pieceTheme;
     modal.classList.add("visible");
   }
 
