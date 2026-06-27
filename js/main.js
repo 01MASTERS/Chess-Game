@@ -1,288 +1,635 @@
-const pawn = 'o'
-const bishop = 'v'
-const knight = 'm'
-const rook = 't'
-const queen = 'w'
-const king = 'l'
+/**
+ * main.js — Application Controller
+ *
+ * Owns all mutable application state. Wires together
+ * ChessEngine, ChessBoard, and ChessUI into a cohesive app.
+ *
+ * Responsibilities:
+ *   - Session state (game state, history, UI state)
+ *   - Click/interaction handling
+ *   - Persistence (localStorage)
+ *   - Coordinating renders after each state change
+ *
+ * Future-ready:
+ *   - State shape is serialisable for PGN/FEN export
+ *   - Clock integration point marked with TODO
+ *   - Engine (Stockfish) integration point marked with TODO
+ */
 
-var turn = 0; // even = white, odd = black
+const ChessApp = (() => {
+  const STORAGE_KEY = "chess_v2_session";
 
-var white_castle_right = 1 // 1 = true, 0 = false
-var white_castle_left = 1 
-var black_castle_right = 1 
-var black_castle_left = 1
+  // ─── App State ────────────────────────────────────────────────────────────
 
-var alertError = 1
+  let gameState = null; // ChessEngine state object
+  let history = []; // [{ from, to, notation, isCapture, isCastle, isPromotion, stateAfter }]
+  let flipped = false; // board orientation
+  let selected = null; // index of selected square (or null)
+  let legalSqs = []; // legal destination squares for selected piece
+  let lastMove = null; // { from, to } of the last executed move
+  let gameResult = "playing"; // result string from ChessEngine.getGameResult()
+  let awaitingPromo = false; // true while promotion picker is open
+  let currentMoveIdx = null; // null = live play, otherwise index in history we're viewing
+  let showCoords = true; // visibility state for coordinates
+  let gameStartTime = null; // game start timestamp
 
-// called every move
-function move(cur, next, test){
-    document.querySelector('.messageBox').innerText = '';
-    curElem = document.getElementById(cur);
-    nextElem = document.getElementById(next);
+  // Settings state
+  let settings = {
+    darkMode: true,
+    soundEnabled: true,
+    animations: true,
+    autoFlip: false,
+    boardTheme: "green",
+    pieceTheme: "unicode",
+  };
 
-    if (checkForUnrealMove(cur, next)) {return 0};
-    if (checkForTurn(curElem)) {return 0};
-    if (checkForRealMove(curElem)) {return 0};
-    if (checkForCaptureOwnPiece(curElem, nextElem)) {return 0};
-    if (checkForChecks(cur, next)) {return 0};
+  // TODO: Clock state will live here
+  // let clock = { white: 600, black: 600, increment: 0, running: false };
 
-    if (curElem.innerText == pawn) {
-        if (checkForPawns(cur, next)) {return 0};
-    }
+  // ─── Initialise ───────────────────────────────────────────────────────────
 
-    if (curElem.innerText == rook) {
-        if (checkForRooks(cur, next, 'rook')) {return 0};
-    }
+  function init() {
+    loadSettings();
+    applySettings();
 
-    if (curElem.innerText == knight) {
-        if (checkForKnights(cur, next)) {return 0};
-    }
+    ChessBoard.init("board", "coords-ranks", "coords-files", onSquareClick, onSquareDrop);
 
-    if (curElem.innerText == bishop) {
-        if(checkForBishops(cur, next, 'bishop')) {return 0};
-        if(checkForBishopBlockers(cur, next, 'bishop')) {return 0};
-    }
+    // Header buttons
+    document
+      .getElementById("btn-new-game")
+      .addEventListener("click", confirmNewGame);
+    document.getElementById("btn-flip").addEventListener("click", flipBoard);
+    document.getElementById("btn-undo").addEventListener("click", undoMove);
+    document
+      .getElementById("btn-coords-toggle")
+      .addEventListener("click", toggleCoords);
+    document
+      .getElementById("btn-theme")
+      .addEventListener("click", openThemeSelector);
+    document
+      .getElementById("btn-settings")
+      .addEventListener("click", openSettings);
 
-    if (curElem.innerText == queen) {
-        if(checkForQueens(cur, next)) {return 0};
-    }
+    // Move navigation
+    document
+      .getElementById("btn-prev-move")
+      .addEventListener("click", prevMove);
+    document
+      .getElementById("btn-next-move")
+      .addEventListener("click", nextMove);
 
-    if (curElem.innerText == king) {
-        if(checkForKings(cur, next)) {return 0};
-    }
+    // Keyboard shortcuts
+    document.addEventListener("keydown", handleKeyboardShortcut);
 
-    if (test == 0) {
-        nextElem.innerHTML = curElem.innerHTML;
-        curElem.innerHTML = ''
-        if (checkForChecksForCheckmate(cur, next)){
-        } else {
-            checkForStalemates(cur, next);
+    // Modal close buttons
+    document.querySelectorAll(".modal-close").forEach((btn) => {
+      btn.addEventListener("click", closeAllModals);
+    });
+
+    // Settings UI
+    document
+      .getElementById("toggle-dark-mode")
+      .addEventListener("change", (e) => {
+        settings.darkMode = e.target.checked;
+        saveSettings();
+        applySettings();
+      });
+
+    document.getElementById("toggle-sounds").addEventListener("change", (e) => {
+      settings.soundEnabled = e.target.checked;
+      saveSettings();
+    });
+
+    document
+      .getElementById("toggle-animations")
+      .addEventListener("change", (e) => {
+        settings.animations = e.target.checked;
+        saveSettings();
+        applySettings();
+      });
+
+    document
+      .getElementById("toggle-auto-flip")
+      .addEventListener("change", (e) => {
+        settings.autoFlip = e.target.checked;
+        saveSettings();
+      });
+
+    document
+      .getElementById("piece-theme-select")
+      .addEventListener("change", (e) => {
+        settings.pieceTheme = e.target.value;
+        saveSettings();
+      });
+
+    document
+      .getElementById("btn-clear-storage")
+      .addEventListener("click", () => {
+        if (window.confirm("Clear all saved games? This cannot be undone.")) {
+          localStorage.clear();
+          startNewGame();
         }
-        alertError = 1
-        if (turn % 2 == 0) {
-            flip = 0;
-            boardFlip();
-        } else {
-            flip = 1;
-            boardFlip();
+      });
+
+    // Close modals on background click
+    document.querySelectorAll(".modal").forEach((modal) => {
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeAllModals();
+      });
+    });
+
+    if (!loadSession()) startNewGame();
+    else fullRender();
+
+    gameStartTime = Date.now();
+  }
+
+  // ─── New Game / Reset ─────────────────────────────────────────────────────
+
+  function startNewGame() {
+    gameState = ChessEngine.createInitialState();
+    history = [];
+    selected = null;
+    legalSqs = [];
+    lastMove = null;
+    gameResult = "playing";
+    awaitingPromo = false;
+    currentMoveIdx = null;
+    gameStartTime = Date.now();
+    saveSession();
+    fullRender();
+  }
+
+  function confirmNewGame() {
+    if (history.length === 0) {
+      startNewGame();
+      return;
+    }
+    if (window.confirm("Start a new game? Current game will be lost."))
+      startNewGame();
+  }
+
+  // ─── Board Flip ───────────────────────────────────────────────────────────
+
+  function flipBoard() {
+    flipped = !flipped;
+    saveSession();
+    fullRender();
+  }
+
+  // ─── Undo ─────────────────────────────────────────────────────────────────
+
+  function undoMove() {
+    if (gameResult !== "playing" || history.length === 0) return;
+    history.pop();
+    gameState =
+      history.length > 0
+        ? ChessEngine.cloneState(history[history.length - 1].stateAfter)
+        : ChessEngine.createInitialState();
+    lastMove =
+      history.length > 0
+        ? {
+            from: history[history.length - 1].from,
+            to: history[history.length - 1].to,
+          }
+        : null;
+    selected = null;
+    legalSqs = [];
+    gameResult = ChessEngine.getGameResult(gameState);
+    saveSession();
+    fullRender();
+  }
+
+  // ─── Move Navigation ──────────────────────────────────────────────────────
+
+  function jumpToMove(moveIdx) {
+    if (moveIdx < -1 || moveIdx >= history.length) return;
+
+    currentMoveIdx = moveIdx;
+
+    if (moveIdx === -1) {
+      gameState = ChessEngine.createInitialState();
+      lastMove = null;
+    } else {
+      gameState = ChessEngine.cloneState(history[moveIdx].stateAfter);
+      lastMove = { from: history[moveIdx].from, to: history[moveIdx].to };
+    }
+
+    selected = null;
+    legalSqs = [];
+    fullRender();
+  }
+
+  function prevMove() {
+    if (currentMoveIdx === null) currentMoveIdx = history.length - 1;
+    else if (currentMoveIdx > -1) currentMoveIdx--;
+    else return;
+
+    jumpToMove(currentMoveIdx);
+  }
+
+  function nextMove() {
+    if (currentMoveIdx === null) return;
+    if (currentMoveIdx < history.length - 1) {
+      currentMoveIdx++;
+      jumpToMove(currentMoveIdx);
+    } else {
+      currentMoveIdx = null;
+      gameState =
+        history.length > 0
+          ? ChessEngine.cloneState(history[history.length - 1].stateAfter)
+          : ChessEngine.createInitialState();
+      lastMove =
+        history.length > 0
+          ? {
+              from: history[history.length - 1].from,
+              to: history[history.length - 1].to,
+            }
+          : null;
+      selected = null;
+      legalSqs = [];
+      fullRender();
+    }
+  }
+
+  // ─── Board Controls ───────────────────────────────────────────────────────
+
+  function toggleCoords() {
+    showCoords = !showCoords;
+    document.getElementById("coords-ranks").style.display = showCoords
+      ? "flex"
+      : "none";
+    document.getElementById("coords-files").style.display = showCoords
+      ? "flex"
+      : "none";
+  }
+
+  function openThemeSelector() {
+    const modal = document.getElementById("theme-selector");
+    const container = document.getElementById("theme-options");
+    container.innerHTML = "";
+
+    const themes = [
+      { id: "green", name: "Green", bg: "#779556", light: "#ebecd0" },
+      { id: "classic", name: "Classic", bg: "#B58863", light: "#F0D9B5" },
+      { id: "blue", name: "Blue", bg: "#4A90E2", light: "#E8E8E8" },
+      { id: "purple", name: "Purple", bg: "#7B5BA0", light: "#F0E8F0" },
+    ];
+
+    themes.forEach((theme) => {
+      const btn = document.createElement("div");
+      btn.className = `theme-option ${settings.boardTheme === theme.id ? "active" : ""}`;
+      btn.style.cssText = `border-color: ${theme.bg}; background: linear-gradient(135deg, ${theme.light} 50%, ${theme.bg} 50%);`;
+      btn.textContent = theme.name;
+      btn.addEventListener("click", () => {
+        settings.boardTheme = theme.id;
+        saveSettings();
+        applyBoardTheme(theme.id);
+        modal.classList.remove("visible");
+      });
+      container.appendChild(btn);
+    });
+
+    modal.classList.add("visible");
+  }
+
+  function openSettings() {
+    const modal = document.getElementById("settings-modal");
+    document.getElementById("toggle-dark-mode").checked = settings.darkMode;
+    document.getElementById("toggle-sounds").checked = settings.soundEnabled;
+    document.getElementById("toggle-animations").checked = settings.animations;
+    document.getElementById("toggle-auto-flip").checked = settings.autoFlip;
+    document.getElementById("piece-theme-select").value = settings.pieceTheme;
+    modal.classList.add("visible");
+  }
+
+  function closeAllModals() {
+    document.querySelectorAll(".modal").forEach((modal) => {
+      modal.classList.remove("visible");
+    });
+  }
+
+  // ─── Settings Management ──────────────────────────────────────────────────
+
+  function loadSettings() {
+    try {
+      const saved = localStorage.getItem("chess_settings");
+      if (saved) settings = { ...settings, ...JSON.parse(saved) };
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem("chess_settings", JSON.stringify(settings));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function applySettings() {
+    applyBoardTheme(settings.boardTheme);
+    document.documentElement.classList.toggle("dark-mode", settings.darkMode);
+    document.documentElement.style.setProperty(
+      "--animations-enabled",
+      settings.animations ? "1" : "0",
+    );
+  }
+
+  function applyBoardTheme(themeId) {
+    const themes = {
+      green: { light: "#ebecd0", dark: "#779556", coordColor: "#e8e4da" },
+      classic: { light: "#F0D9B5", dark: "#B58863", coordColor: "#5a4a3a" },
+      blue: { light: "#E8E8E8", dark: "#4A90E2", coordColor: "#2c3e50" },
+      purple: { light: "#F0E8F0", dark: "#7B5BA0", coordColor: "#4a3a5a" },
+    };
+    const theme = themes[themeId] || themes.green;
+    document.documentElement.style.setProperty("--sq-light", theme.light);
+    document.documentElement.style.setProperty("--sq-dark", theme.dark);
+    document.documentElement.style.setProperty(
+      "--coord-color",
+      theme.coordColor,
+    );
+  }
+
+  // ─── Keyboard Shortcuts ───────────────────────────────────────────────────
+
+  function handleKeyboardShortcut(e) {
+    // Don't trigger if user is typing in an input
+    if (e.target.matches("input, textarea, select")) return;
+
+    switch (e.key) {
+      case "f":
+      case "F":
+        e.preventDefault();
+        flipBoard();
+        break;
+      case "c":
+      case "C":
+        e.preventDefault();
+        toggleCoords();
+        break;
+      case "s":
+      case "S":
+        e.preventDefault();
+        openSettings();
+        break;
+      case "?":
+        e.preventDefault();
+        document.getElementById("shortcuts-help").classList.add("visible");
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        prevMove();
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        nextMove();
+        break;
+      case "Home":
+        e.preventDefault();
+        jumpToMove(-1);
+        break;
+      case "End":
+        e.preventDefault();
+        jumpToMove(history.length - 1);
+        break;
+      case "z":
+      case "Z":
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          undoMove();
         }
-        turn += 1;    
-    }    
+        break;
+      case "Escape":
+        closeAllModals();
+        break;
+    }
+  }
 
-    console.log(turn)
-    return 1;
-}
+  // ─── Click Handler ────────────────────────────────────────────────────────
 
+  function onSquareClick(sqIdx) {
+    if (gameResult !== "playing" || awaitingPromo) return;
 
-function showError(message){
-    if (alertError){
-        // alert(message)
-        document.querySelector('.messageBox').innerText = message;
+    const piece = gameState.board[sqIdx];
+
+    // A legal destination is selected → execute the move
+    if (selected !== null && legalSqs.includes(sqIdx)) {
+      handleMoveAttempt(selected, sqIdx);
+      return;
+    }
+
+    // Clicking own piece → select it
+    if (piece && ChessEngine.colorOf(piece) === gameState.turn) {
+      // Re-clicking same square deselects
+      if (selected === sqIdx) {
+        selected = null;
+        legalSqs = [];
+      } else {
+        selected = sqIdx;
+        legalSqs = ChessEngine.legalMovesFrom(gameState, sqIdx);
+      }
+      ChessBoard.render(_boardRenderParams());
+      return;
+    }
+
+    // Clicking empty / enemy square with nothing selected → deselect
+    selected = null;
+    legalSqs = [];
+    ChessBoard.render(_boardRenderParams());
+  }
+
+  function onSquareDrop(fromSqIdx, toSqIdx) {
+    if (gameResult !== "playing" || awaitingPromo) return;
+
+    const legalMoves = ChessEngine.legalMovesFrom(gameState, fromSqIdx);
+    
+    if (legalMoves.includes(toSqIdx)) {
+      handleMoveAttempt(fromSqIdx, toSqIdx);
     } else {
-        console.log(message) 
+      selected = null;
+      legalSqs = [];
+      ChessBoard.render(_boardRenderParams());
     }
-}
+  }
 
-function checkForUnrealMove(cur, next){
-    letterAsNumber(Array.from(cur)[0]);
-    letterAsNumber(Array.from(next)[0]);
+  // ─── Move Execution ───────────────────────────────────────────────────────
 
-    let curNumber = Number(Array.from(cur)[1]);
-    let nextNumber = Number(Array.from(next)[1]);
+  async function handleMoveAttempt(from, to) {
+    const piece = gameState.board[from];
+    const type = ChessEngine.typeOf(piece);
+    const col = ChessEngine.colorOf(piece);
+    const { r: tr } = ChessEngine.rc(to);
 
-    if (curNumber < 1 || curNumber > 8 || nextNumber < 1 || nextNumber > 8){
-        showError('That square does note exits')
-        return 1;
+    let promoType = null;
+
+    // Pawn promotion — await user choice
+    if (type === "P" && (tr === 0 || tr === 7)) {
+      awaitingPromo = true;
+      ChessBoard.render(_boardRenderParams()); // keep board visible
+      promoType = await ChessUI.showPromotionPicker(col);
+      awaitingPromo = false;
     }
-}
 
+    executeMove(from, to, promoType);
+  }
 
+  function executeMove(from, to, promoType) {
+    const notation = ChessEngine.toAlgebraic(gameState, from, to, promoType);
 
-function checkForTurn(curElem){
-    if (turn % 2 == 0 && curElem.innerHTML.search('black') > 0){
-        showError("White's turn")
-        return 1;
+    // Classify move for sound
+    const isCastle =
+      ChessEngine.typeOf(gameState.board[from]) === "K" &&
+      Math.abs(ChessEngine.rc(from).c - ChessEngine.rc(to).c) === 2;
+    const isCapture =
+      gameState.board[to] !== null ||
+      (ChessEngine.typeOf(gameState.board[from]) === "P" &&
+        gameState.enPassant === to);
+    const isPromotion = promoType !== null;
+
+    const nextState = ChessEngine.applyMove(gameState, from, to, promoType);
+    const nextResult = ChessEngine.getGameResult(nextState);
+    const isCheck =
+      nextResult === "playing" &&
+      ChessEngine.inCheck(nextState.board, nextState.turn);
+    const isCheckmate = nextResult === "checkmate";
+
+    history.push({
+      from,
+      to,
+      notation,
+      isCapture,
+      isCastle,
+      isPromotion,
+      stateAfter: ChessEngine.cloneState(nextState),
+    });
+
+    gameState = nextState;
+    lastMove = { from, to };
+    selected = null;
+    legalSqs = [];
+    gameResult = nextResult;
+
+    ChessUI.playMoveSound({
+      isCapture,
+      isCastle,
+      isPromotion,
+      isCheck,
+      isCheckmate,
+    });
+
+    saveSession();
+    fullRender();
+
+    // TODO: Trigger Stockfish analysis here if engine is attached
+  }
+
+  // ─── Full Render ──────────────────────────────────────────────────────────
+
+  function fullRender() {
+    const isCheck =
+      gameResult === "playing" &&
+      ChessEngine.inCheck(gameState.board, gameState.turn);
+
+    const stats = getGameStatistics();
+
+    ChessBoard.render(_boardRenderParams());
+    ChessBoard.renderCoords(flipped);
+    ChessUI.renderPlayerBars(gameState, flipped);
+    ChessUI.renderStatus(gameResult, gameState.turn, isCheck);
+    ChessUI.renderMoveHistory(history, currentMoveIdx, jumpToMove);
+    ChessUI.renderStatistics(stats, history.length, currentMoveIdx);
+  }
+
+  function getGameStatistics() {
+    const { capturedByWhite, capturedByBlack } = ChessEngine.getCapturedPieces(
+      gameState.board,
+    );
+    const advantage = ChessEngine.getMaterialAdvantage(gameState.board);
+    const duration = Math.floor((Date.now() - gameStartTime) / 1000);
+    const capturedTotal = capturedByWhite.length + capturedByBlack.length;
+
+    return {
+      totalMoves: history.length,
+      capturedTotal,
+      advantage,
+      duration,
+      capturedByWhite,
+      capturedByBlack,
+    };
+  }
+
+  function _boardRenderParams() {
+    const isCheck =
+      gameResult === "playing" &&
+      ChessEngine.inCheck(gameState.board, gameState.turn);
+    return {
+      board: gameState.board,
+      flipped,
+      selected,
+      legalSqs,
+      lastMove,
+      isCheck,
+      turn: gameState.turn,
+      enPassant: gameState.enPassant,
+    };
+  }
+
+  // ─── Persistence ──────────────────────────────────────────────────────────
+
+  function saveSession() {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          gameState,
+          history,
+          flipped,
+          lastMove,
+        }),
+      );
+    } catch (_) {
+      /* storage unavailable */
     }
-    else if (turn % 2 != 0 && curElem.innerHTML.search('white') > 0){
-        showError("Black's turn")
-        return 1;
+  }
+
+  function loadSession() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const saved = JSON.parse(raw);
+      if (!saved.gameState) return false;
+
+      gameState = saved.gameState;
+      history = saved.history || [];
+      flipped = saved.flipped || false;
+      lastMove = saved.lastMove || null;
+      selected = null;
+      legalSqs = [];
+      gameResult = ChessEngine.getGameResult(gameState);
+      return true;
+    } catch (_) {
+      return false;
     }
-}
+  }
 
+  // ─── Public API ───────────────────────────────────────────────────────────
+  // Exposed for future integrations (Stockfish, clocks, PGN export, etc.)
 
+  return {
+    init,
+    newGame: confirmNewGame,
+    flipBoard,
+    undoMove,
+    getState: () => ChessEngine.cloneState(gameState),
+    getHistory: () => [...history],
+    getFEN: () => ChessEngine.getFEN(gameState),
+    // TODO: loadFEN(fen) — parse and load a position
+    // TODO: exportPGN()  — build PGN string from history
+  };
+})();
 
-function checkForRealMove(curElem){
-    if (curElem.innerText == ''){
-        showError('No Piece There');
-        return 1;
-    }
-}
-
-
-
-function checkForCaptureOwnPiece(curElem, nextElem){
-    if (curElem.innerHTML.search('white') > 0 && nextElem.innerHTML.search('white') > 0){ // for white
-        showError('Cannot take own piece');
-        return 1;
-    } 
-    else if (curElem.innerHTML.search('black') > 0 && nextElem.innerHTML.search('black') > 0) { // for black
-        showError('Cannot take own piece');
-        return 1;
-    }
-}
-
-function resetGame(){
-    location.reload();
-    return false;
-    // var turn = 0; // even = white, odd = black
-
-    // var white_castle_right = 1 // 1 = true, 0 = false
-    // var white_castle_left = 1 
-    // var black_castle_right = 1 
-    // var black_castle_left = 1
-
-    // var alertError = 1
-
-    // document.querySelector('.board').innerHTML = `
-    // <div id="a8" class="square light"><div class="piece black">t</div></div>
-    // <div id="b8" class="square dark"><div class="piece black">m</div></div>
-    // <div id="c8" class="square light"><div class="piece black">v</div></div>
-    // <div id="d8" class="square dark"><div class="piece black">w</div></div>
-    // <div id="e8" class="square light"><div class="piece black">l</div></div>
-    // <div id="f8" class="square dark"><div class="piece black">v</div></div>
-    // <div id="g8" class="square light"><div class="piece black">m</div></div>
-    // <div id="h8" class="square dark"><div class="piece black">t</div></div>
-
-    // <div id="a7" class="square dark"><div class="piece black">o</div></div>
-    // <div id="b7" class="square light"><div class="piece black">o</div></div>
-    // <div id="c7" class="square dark"><div class="piece black">o</div></div>
-    // <div id="d7" class="square light"><div class="piece black">o</div></div>
-    // <div id="e7" class="square dark"><div class="piece black">o</div></div>
-    // <div id="f7" class="square light"><div class="piece black">o</div></div>
-    // <div id="g7" class="square dark"><div class="piece black">o</div></div>
-    // <div id="h7" class="square light"><div class="piece black">o</div></div>
-    
-    // <div id="a6" class="square light"><div class="piece"></div></div>
-    // <div id="b6" class="square dark"><div class="piece"></div></div>
-    // <div id="c6" class="square light"><div class="piece"></div></div>
-    // <div id="d6" class="square dark"><div class="piece"></div></div>
-    // <div id="e6" class="square light"><div class="piece"></div></div>
-    // <div id="f6" class="square dark"><div class="piece"></div></div>
-    // <div id="g6" class="square light"><div class="piece"></div></div>
-    // <div id="h6" class="square dark"><div class="piece"></div></div>
-
-    // <div id="a5" class="square dark"><div class="piece"></div></div>
-    // <div id="b5" class="square light"><div class="piece"></div></div>
-    // <div id="c5" class="square dark"><div class="piece"></div></div>
-    // <div id="d5" class="square light"><div class="piece"></div></div>
-    // <div id="e5" class="square dark"><div class="piece"></div></div>
-    // <div id="f5" class="square light"><div class="piece"></div></div>
-    // <div id="g5" class="square dark"><div class="piece"></div></div>
-    // <div id="h5" class="square light"><div class="piece"></div></div>
-    
-    // <div id="a4" class="square light"><div class="piece"></div></div>
-    // <div id="b4" class="square dark"><div class="piece"></div></div>
-    // <div id="c4" class="square light"><div class="piece"></div></div>
-    // <div id="d4" class="square dark"><div class="piece"></div></div>
-    // <div id="e4" class="square light"><div class="piece"></div></div>
-    // <div id="f4" class="square dark"><div class="piece"></div></div>
-    // <div id="g4" class="square light"><div class="piece"></div></div>
-    // <div id="h4" class="square dark"><div class="piece"></div></div>
-    
-    // <div id="a3" class="square dark"><div class="piece"></div></div>
-    // <div id="b3" class="square light"><div class="piece"></div></div>
-    // <div id="c3" class="square dark"><div class="piece"></div></div>
-    // <div id="d3" class="square light"><div class="piece"></div></div>
-    // <div id="e3" class="square dark"><div class="piece"></div></div>
-    // <div id="f3" class="square light"><div class="piece"></div></div>
-    // <div id="g3" class="square dark"><div class="piece"></div></div>
-    // <div id="h3" class="square light"><div class="piece"></div></div>
-    
-    // <div id="a2" class="square light"><div class="piece white">o</div></div>
-    // <div id="b2" class="square dark"><div class="piece white">o</div></div>
-    // <div id="c2" class="square light"><div class="piece white">o</div></div>
-    // <div id="d2" class="square dark"><div class="piece white">o</div></div>
-    // <div id="e2" class="square light"><div class="piece white">o</div></div>
-    // <div id="f2" class="square dark"><div class="piece white">o</div></div>
-    // <div id="g2" class="square light"><div class="piece white">o</div></div>
-    // <div id="h2" class="square dark"><div class="piece white">o</div></div>
-
-    // <div id="a1" class="square dark"><div class="piece white">t</div></div>
-    // <div id="b1" class="square light"><div class="piece white">m</div></div>
-    // <div id="c1" class="square dark"><div class="piece white">v</div></div>
-    // <div id="d1" class="square light"><div class="piece white">w</div></div>
-    // <div id="e1" class="square dark"><div class="piece white">l</div></div>
-    // <div id="f1" class="square light"><div class="piece white">v</div></div>
-    // <div id="g1" class="square dark"><div class="piece white">m</div></div>
-    // <div id="h1" class="square light"><div class="piece white">t</div></div>
-    // `
-
-    // var click = 1
-    // var spots = ['', '']
-}
-
-
-
-function handleCommands(){
-    const command = document.getElementById('commands');
-    let forMove = command.value.split(' ');
-
-    move(forMove[0], forMove[1], 0, 1);
-    command.value = '';
-}
-
-var click = 1
-var spots = ['', '']
-
-// handles clicking pieces
-function clicks(e){
-    if (click >= 3) {
-        click = 1
-        spots = ['', '']
-    }
-    let target = e.srcElement || e.target;
-    if (click == 1) {
-        spots[0] = target.id || target.parentElement.id
-    } else if (click == 2) {
-        spots[1] = target.id || target.parentElement.id
-    }
-    if (spots[0] != '' && spots[1] != ''){
-        move(spots[0], spots[1], 0);    
-    }
-    click += 1
-    // console.log(spots)
-    // console.log(target.id || target.parentElement.id)
-}
-
-
-document.getElementById('commands').addEventListener('keyup', function (event) {
-    if (event.key === 'Enter') {
-        handleCommands()
-    } 
-    else if (event.keyIdentifier === 13) {
-        handleCommands()
-    } 
-    else if (event.keyCode === 13) {
-        handleCommands()
-    }
-})
-
-const move_list = [
-    // 'e2', 'e4', 'e7', 'e5', 'f1', 'c4', 'f8', 'c5', 'd1', 'f3', 'a7', 'a6', 'h2', 'h4', 'a6', 'a5', 'h1', 'h3', 'a5', 'a4', 'f3', 'c3', 'a4', 'a3', 'h3', 'g3', 'b7', 'b6', 'g3', 'g5', 'c8', 'b7'
-]
-
-let moveVar = 0
-let moveLoc = ['', '']
-move_list.forEach((element) => {
-    if (moveVar % 2 == 0) {
-        moveLoc[0] = element;
-        moveVar += 1;
-    } else {
-        moveLoc[1] = element;
-        moveVar += 1;
-    }
-    if (moveLoc[0] !== '' && moveLoc[1] !== '') {
-        move(moveLoc[0], moveLoc[1], 0);
-        moveLoc = ['', ''];
-    }
-});
+// Boot the application once the DOM is ready
+document.addEventListener("DOMContentLoaded", ChessApp.init);

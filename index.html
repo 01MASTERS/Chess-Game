@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Offline chess — play a full game in your browser with no internet required."
+    />
+    <title>Chess</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <!-- ═══════════════ Header ═══════════════ -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">♟</span>
+        <span>Chess</span>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn" id="btn-new-game" title="Start a new game">
+          <span class="btn-icon">✦</span>New Game
+        </button>
+        <button class="btn" id="btn-flip" title="Flip the board (F)">
+          <span class="btn-icon">⇅</span>Flip
+        </button>
+        <button class="btn" id="btn-undo" title="Undo last move (Ctrl+Z)">
+          <span class="btn-icon">↩</span>Undo
+        </button>
+        <button
+          class="btn"
+          id="btn-coords-toggle"
+          title="Toggle coordinates (C)"
+        >
+          <span class="btn-icon">📍</span>Coords
+        </button>
+        <button class="btn" id="btn-theme" title="Theme selector">
+          <span class="btn-icon">🎨</span>Theme
+        </button>
+        <button class="btn" id="btn-settings" title="Settings (S)">
+          <span class="btn-icon">⚙</span>Settings
+        </button>
+      </div>
+    </header>
+
+    <!-- ═══════════════ Main ═══════════════ -->
+    <main class="app-main">
+      <div class="game-layout">
+        <!-- Board column -->
+        <div class="board-column">
+          <!-- Top player (black by default) -->
+          <div class="player-bar top" id="bar-top">
+            <div class="player-left">
+              <div class="player-avatar black-av" id="avatar-top">♚</div>
+              <div class="player-meta">
+                <div class="player-name" id="name-top">Black</div>
+                <div
+                  class="captured-pieces"
+                  id="captured-top"
+                  aria-label="Captured by Black"
+                ></div>
+              </div>
+            </div>
+            <div class="player-right">
+              <div
+                class="material-diff"
+                id="diff-top"
+                aria-label="Material advantage"
+              ></div>
+              <div
+                class="turn-dot hidden"
+                id="dot-top"
+                aria-label="Black's turn"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Board + coordinate labels -->
+          <div class="board-wrapper">
+            <div class="coords-col" id="coords-ranks" aria-hidden="true"></div>
+            <div id="board" role="grid" aria-label="Chess board"></div>
+            <div class="coords-row" id="coords-files" aria-hidden="true"></div>
+          </div>
+
+          <!-- Bottom player (white by default) -->
+          <div class="player-bar bottom" id="bar-bottom">
+            <div class="player-left">
+              <div class="player-avatar white-av" id="avatar-bottom">♔</div>
+              <div class="player-meta">
+                <div class="player-name" id="name-bottom">White</div>
+                <div
+                  class="captured-pieces"
+                  id="captured-bottom"
+                  aria-label="Captured by White"
+                ></div>
+              </div>
+            </div>
+            <div class="player-right">
+              <div
+                class="material-diff"
+                id="diff-bottom"
+                aria-label="Material advantage"
+              ></div>
+              <div
+                class="turn-dot"
+                id="dot-bottom"
+                aria-label="White's turn"
+              ></div>
+            </div>
+          </div>
+        </div>
+        <!-- /board-column -->
+
+        <!-- Sidebar -->
+        <aside class="sidebar" aria-label="Game information">
+          <!-- Status -->
+          <div class="panel-card status-card">
+            <div class="panel-header">Status</div>
+            <div class="panel-body">
+              <div class="status-value" id="status-text">White to move</div>
+            </div>
+          </div>
+
+          <!-- Game-over banner (hidden until game ends) -->
+          <div id="gameover-banner" role="status" aria-live="polite">
+            <div class="gameover-title" id="gameover-title">—</div>
+            <div class="gameover-subtitle" id="gameover-subtitle">—</div>
+          </div>
+
+          <!-- Statistics -->
+          <div class="panel-card stats-card">
+            <div class="panel-header">Stats</div>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <div class="stat-label">Total Moves</div>
+                <div class="stat-value" id="stat-moves">0</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Duration</div>
+                <div class="stat-value" id="stat-duration">0:00</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Material</div>
+                <div class="stat-value" id="stat-material">0</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Captured</div>
+                <div class="stat-value" id="stat-captured">0</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Move history -->
+          <div class="panel-card move-history-card">
+            <div class="panel-header">Moves</div>
+            <div class="move-nav-controls">
+              <button
+                class="move-nav-btn"
+                id="btn-prev-move"
+                title="Previous move (←)"
+              >
+                ◄
+              </button>
+              <span class="move-counter" id="move-counter">0/0</span>
+              <button
+                class="move-nav-btn"
+                id="btn-next-move"
+                title="Next move (→)"
+              >
+                ►
+              </button>
+            </div>
+            <div
+              id="move-list"
+              role="log"
+              aria-label="Move history"
+              aria-live="polite"
+            ></div>
+          </div>
+        </aside>
+      </div>
+      <!-- /game-layout -->
+    </main>
+
+    <!-- ═══════════════ Theme Selector ═══════════════ -->
+    <div
+      id="theme-selector"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Select board theme"
+    >
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">Board Theme</div>
+          <button class="modal-close" aria-label="Close theme selector">
+            ✕
+          </button>
+        </div>
+        <div class="theme-options" id="theme-options"></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ Settings ═══════════════ -->
+    <div
+      id="settings-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+    >
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">Settings</div>
+          <button class="modal-close" aria-label="Close settings">✕</button>
+        </div>
+        <div class="settings-options">
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="toggle-dark-mode" />
+              Dark Mode
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="toggle-sounds" />
+              Sound Effects
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="toggle-animations" />
+              Smooth Animations
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="toggle-auto-flip" />
+              Auto-flip Board
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              Piece Theme:
+              <select id="piece-theme-select">
+                <option value="unicode">Unicode</option>
+                <option value="figurine">Figurine</option>
+                <option value="minimal">Minimal</option>
+              </select>
+            </label>
+          </div>
+          <div class="setting-item">
+            <button class="btn btn-secondary" id="btn-clear-storage">
+              Clear Game History
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ Keyboard Shortcuts Help ═══════════════ -->
+    <div
+      id="shortcuts-help"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+    >
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">Keyboard Shortcuts</div>
+          <button class="modal-close" aria-label="Close shortcuts">✕</button>
+        </div>
+        <div class="shortcuts-list">
+          <div class="shortcut-item">
+            <div class="shortcut-key">F</div>
+            <div class="shortcut-desc">Flip board</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">Ctrl+Z</div>
+            <div class="shortcut-desc">Undo last move</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">←</div>
+            <div class="shortcut-desc">Previous move</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">→</div>
+            <div class="shortcut-desc">Next move</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">Home</div>
+            <div class="shortcut-desc">Start position</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">End</div>
+            <div class="shortcut-desc">Latest position</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">C</div>
+            <div class="shortcut-desc">Toggle coordinates</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">S</div>
+            <div class="shortcut-desc">Settings</div>
+          </div>
+          <div class="shortcut-item">
+            <div class="shortcut-key">?</div>
+            <div class="shortcut-desc">Show this help</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ Promotion Picker ═══════════════ -->
+    <div
+      id="promotion-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose promotion piece"
+    >
+      <div class="promotion-panel">
+        <div class="promotion-title">Promote Pawn</div>
+        <div class="promotion-choices" id="promotion-choices"></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ Toast ═══════════════ -->
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!-- ═══════════════ Scripts (order matters) ═══════════════ -->
+    <script src="js/game.js"></script>
+    <script src="js/board.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
