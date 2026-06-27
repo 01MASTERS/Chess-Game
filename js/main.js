@@ -38,7 +38,6 @@ const ChessApp = (() => {
     darkMode: true,
     soundEnabled: true,
     animations: true,
-    autoFlip: false,
     boardTheme: "green",
   };
 
@@ -108,18 +107,6 @@ const ChessApp = (() => {
       });
 
     document
-      .getElementById("toggle-auto-flip")
-      .addEventListener("change", (e) => {
-        settings.autoFlip = e.target.checked;
-        saveSettings();
-        if (settings.autoFlip && currentMoveIdx === null && gameState) {
-          setFlipped(gameState.turn === "b");
-          saveSession();
-          fullRender();
-        }
-      });
-
-    document
       .getElementById("btn-clear-storage")
       .addEventListener("click", () => {
         if (window.confirm("Clear all saved games? This cannot be undone.")) {
@@ -151,7 +138,6 @@ const ChessApp = (() => {
     awaitingPromo = false;
     currentMoveIdx = null;
     gameStartTime = Date.now();
-    if (settings.autoFlip) setFlipped(false);
     saveSession();
     fullRender();
   }
@@ -168,22 +154,9 @@ const ChessApp = (() => {
   // ─── Board Flip ───────────────────────────────────────────────────────────
 
   function flipBoard() {
-    setFlipped(!flipped);
+    flipped = !flipped;
     saveSession();
     fullRender();
-  }
-
-  function setFlipped(newVal) {
-    if (flipped === newVal) return;
-    flipped = newVal;
-    if (settings.animations) {
-      const boardEl = document.getElementById("board");
-      if (boardEl) {
-        boardEl.classList.remove("board-spinning");
-        void boardEl.offsetWidth; // force reflow
-        boardEl.classList.add("board-spinning");
-      }
-    }
   }
 
   // ─── Undo ─────────────────────────────────────────────────────────────────
@@ -205,7 +178,6 @@ const ChessApp = (() => {
     selected = null;
     legalSqs = [];
     gameResult = ChessEngine.getGameResult(gameState);
-    if (settings.autoFlip) setFlipped(gameState.turn === "b");
     saveSession();
     fullRender();
   }
@@ -308,7 +280,6 @@ const ChessApp = (() => {
     document.getElementById("toggle-dark-mode").checked = settings.darkMode;
     document.getElementById("toggle-sounds").checked = settings.soundEnabled;
     document.getElementById("toggle-animations").checked = settings.animations;
-    document.getElementById("toggle-auto-flip").checked = settings.autoFlip;
     modal.classList.add("visible");
   }
 
@@ -520,10 +491,6 @@ const ChessApp = (() => {
     selected = null;
     legalSqs = [];
     gameResult = nextResult;
-
-    if (settings.autoFlip) {
-      setFlipped(gameState.turn === "b");
-    }
 
     ChessUI.playMoveSound({
       isCapture,
